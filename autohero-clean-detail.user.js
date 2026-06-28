@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      1.4
+// @version      1.5
 // @description  Remove clutter from autohero car detail pages, and pin key vehicle properties to the top
 // @author       gogamid
 // @match        https://www.autohero.com/de/v1/*/id/*
@@ -93,13 +93,23 @@
             display: inline-flex; align-items: center;
         }
         #ah-copy-btn {
-            margin-left: auto; padding: 5px 12px; border: none; border-radius: 6px;
-            background: #0f3460; color: #fff; cursor: pointer;
-            font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            white-space: nowrap; transition: background .15s;
+            position: fixed !important;
+            bottom: 20px !important;
+            right: 20px !important;
+            z-index: 99999 !important;
+            padding: 11px 18px !important;
+            border: none !important;
+            border-radius: 8px !important;
+            background: #0f3460 !important;
+            color: #fff !important;
+            cursor: pointer !important;
+            font: 600 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            white-space: nowrap !important;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.3) !important;
+            transition: background .15s !important;
         }
-        #ah-copy-btn:hover { background: #1a5276; }
-        #ah-copy-btn.copied { background: #27ae60; }
+        #ah-copy-btn:hover { background: #1a5276 !important; }
+        #ah-copy-btn.copied { background: #27ae60 !important; }
     `);
 
     function getPinnedKeys() {
@@ -221,10 +231,9 @@
         return lines.join('\n');
     }
 
-    // ── Copy button handler ────────────────────────────────────────
+    // ── Floating copy button ──────────────────────────────────────
     function setupCopyButton() {
-        const bar = document.getElementById('ah-pinned-bar');
-        if (!bar || document.getElementById('ah-copy-btn')) return;
+        if (document.getElementById('ah-copy-btn')) return;
 
         const btn = document.createElement('button');
         btn.id = 'ah-copy-btn';
@@ -255,7 +264,7 @@
                 }, 2000);
             }
         });
-        bar.appendChild(btn);
+        document.body.appendChild(btn);
     }
 
     // ── Hide text-based clutter that CSS can't catch ──────────────
