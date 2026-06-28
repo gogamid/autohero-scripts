@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      1.7
+// @version      1.8
 // @description  Remove clutter from autohero car detail pages, and pin key vehicle properties to the top
 // @author       gogamid
 // @match        https://www.autohero.com/de/v1/*/id/*
@@ -255,30 +255,32 @@
         if (motorData.length) push(motorData.join(' · '));
         push('');
 
-        // 3. All feature-section-item properties, grouped by their section
-        // We collect them in order and insert section headers when we encounter different sections
-        const allItems = document.querySelectorAll('[class*="item___qtMsT"]');
-        if (allItems.length) {
-            let currentSection = '';
-            allItems.forEach(item => {
-                // Check if there's a preceding section heading
-                const prevHeading = item.previousElementSibling?.querySelector('h2, h3');
-                if (prevHeading) {
-                    const secText = prevHeading.textContent.trim();
-                    if (secText && secText !== currentSection) {
-                        currentSection = secText;
-                        push(`**${secText}**`);
+        // 3. All feature-section-item properties, grouped by section
+        const propSections = document.querySelectorAll('[class*="section___iCVPH"]');
+        if (propSections.length) {
+            propSections.forEach(section => {
+                const heading = section.querySelector('h2, h3');
+                if (heading) push(`**${heading.textContent.trim()}**`);
+                const items = section.querySelectorAll('[class*="item___qtMsT"]');
+                items.forEach(item => {
+                    const titleEl = item.querySelector('[data-qa-selector$="-title"]');
+                    const bodyEl = item.querySelector('[data-qa-selector$="-body"]');
+                    if (titleEl && bodyEl) {
+                        const t = titleEl.textContent.trim();
+                        const v = bodyEl.textContent.trim();
+                        if (t && v) push(`${t}: ${v}`);
                     }
-                }
-                const titleEl = item.querySelector('[data-qa-selector$="-title"]');
-                const bodyEl = item.querySelector('[data-qa-selector$="-body"]');
-                if (titleEl && bodyEl) {
-                    const t = titleEl.textContent.trim();
-                    const v = bodyEl.textContent.trim();
-                    if (t && v) push(`${t}: ${v}`);
-                }
+                });
+                push('');
             });
-            push('');
+        } else {
+            // Fallback: just get all feature items flat
+            const props = getAllProperties();
+            const vals = Object.values(props).filter(p => p.title && p.value);
+            if (vals.length) {
+                vals.forEach(p => push(`${p.title}: ${p.value}`));
+                push('');
+            }
         }
 
         // 4. Ausstattung — equipment with sub-section labels
@@ -308,26 +310,29 @@
         });
         if (hasEquipment) push('');
 
-        // 5. Service history
+        // 5. Service history — iterate collapse-wrapper elements inside car-history-section
         const historySection = document.querySelector('[data-qa-selector="car-history-section"]');
         if (historySection) {
-            const text = historySection.textContent.trim();
-            if (text.length > 50) {
-                push('**Service & Wartungs-Historie**');
-                // Try to extract individual service records
-                const items = historySection.querySelectorAll('[data-qa-selector="car-history-item"]');
-                if (items.length) {
-                    items.forEach(item => {
-                        const titleEl = item.querySelector('[data-qa-selector="car-history-title"]');
-                        const descEl = item.querySelector('[data-qa-selector="car-history-description"]');
-                        const t = titleEl?.textContent?.trim() || '';
-                        const d = descEl?.textContent?.trim() || '';
-                        if (t) push(`- ${t}: ${d}`);
-                    });
-                } else {
-                    // Fallback: just show the text
-                    push(text.substring(0, 500));
+            const records = historySection.querySelectorAll('[data-qa-selector="collapse-wrapper"]');
+            const serviceEntries = [];
+            records.forEach(w => {
+                const header = w.querySelector('[data-qa-selector="ah-collapse-header"]');
+                const item = w.querySelector('[data-qa-selector="car-history-item"]');
+                if (header && item) {
+                    const hText = header.textContent.trim();
+                    if (hText && (hText.includes('Service') || hText.includes('Wartung') || hText.match(/\d{2}\.\d{4}/) || hText.match(/km/))) {
+                        serviceEntries.push(`**${hText}**`);
+                        // Each task is a direct child div with text
+                        item.querySelectorAll(':scope > div').forEach(child => {
+                            const t = child.textContent.trim();
+                            if (t) serviceEntries.push(`  - ${t}`);
+                        });
+                    }
                 }
+            });
+            if (serviceEntries.length) {
+                push('**Service & Wartungs-Historie**');
+                serviceEntries.forEach(line => push(line));
                 push('');
             }
         }
