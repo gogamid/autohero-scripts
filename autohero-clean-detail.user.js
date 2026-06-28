@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      1.6
+// @version      1.7
 // @description  Remove clutter from autohero car detail pages, and pin key vehicle properties to the top
 // @author       gogamid
 // @match        https://www.autohero.com/de/v1/*/id/*
@@ -210,121 +210,138 @@
         });
     }
 
-    // ── Extract ALL car details as formatted text ────────────────
+    // ── Extract ALL visible car details ───────────────────────────
     function extractCarDetails() {
         const lines = [];
+        const push = (s) => { if (s) lines.push(s); };
 
-        // 1. Car title + subtitle
-        const title = document.querySelector('[data-qa-selector="vehicle-info-title"]')?.textContent?.trim()
-            || document.querySelector('h1')?.textContent?.trim() || '';
-        const subtitle = document.querySelector('[data-qa-selector="vehicle-info-subtitle"]')?.textContent?.trim() || '';
-        if (title) lines.push(`# ${title}`);
-        if (subtitle) lines.push(`**${subtitle}**`);
+        // Helper: get text by data-qa-selector
+        const qaText = (sel) => document.querySelector(`[data-qa-selector="${sel}"]`)?.textContent?.trim() || '';
 
-        // 2. Price info
-        const price = document.querySelector('[data-qa-selector="vehicle-info-price"]')?.textContent?.trim() || '';
-        const monthly = document.querySelector('[data-qa-selector="vehicle-info-monthly-price"]')?.textContent?.trim() || '';
-        const oldPrice = document.querySelector('[data-qa-selector="old-price"]')?.textContent?.trim() || '';
-        const priceParts = [];
-        if (price) priceParts.push(`Preis: ${price}`);
-        if (oldPrice) priceParts.push(`statt ${oldPrice}`);
-        if (monthly) priceParts.push(`monatlich: ${monthly}`);
-        if (priceParts.length) lines.push(priceParts.join(' — '));
-        lines.push('');
+        // 1. Title block
+        const title = qaText('vehicle-info-title') || document.querySelector('h1')?.textContent?.trim() || '';
+        const subtitle = qaText('vehicle-info-subtitle');
+        const price = qaText('vehicle-info-price');
+        if (title) push(`# ${title}`);
+        if (subtitle) push(`**${subtitle}**`);
+        if (price) {
+            const monthly = qaText('vehicle-info-monthly-price');
+            const oldP = qaText('old-price');
+            const parts = [`**Preis:** ${price}`];
+            if (oldP) parts.push(`statt ${oldP}`);
+            if (monthly) parts.push(`monatlich: ${monthly}`);
+            push(parts.join(' — '));
+        }
+        push('');
 
-        // 3. Motor / quick specs (from motor-info section)
-        const motorLabels = {
-            'builtYear': 'Baujahr',
+        // 2. Fahrzeugdetails — motor info tiles
+        const motorMap = {
+            'builtYear': 'Erstzulassung',
             'mileage': 'Kilometerstand',
             'power': 'Leistung',
             'gearType': 'Getriebe',
-            'carPreownerCount': 'Vorbesitzer',
+            'carPreownerCount': 'Anzahl Vorbesitzer',
             'lastService': 'Letzter Service',
             'accident': 'Fahrzeugzustand',
         };
-        const motorLines = [];
-        Object.entries(motorLabels).forEach(([key, label]) => {
-            const el = document.querySelector(`[data-qa-selector="motor-info-title-${key}"]`);
-            const valEl = document.querySelector(`[data-qa-selector="motor-info-element-${key}"]`);
-            if (el && valEl) {
-                motorLines.push(`${label}: ${valEl.textContent.trim()}`);
-            }
-        });
-        if (motorLines.length) {
-            lines.push(motorLines.join(' | '));
-            lines.push('');
-        }
-
-        // 4. Spec list (fuel, consumption, CO2)
-        const specLabels = {
-            'spec-fuel': 'Kraftstoff',
-            'spec-fuelConsumption': 'Verbrauch',
-            'spec-co2Value': 'CO₂',
-            'spec-mileage': 'Kilometerstand',
-            'spec-gear': 'Getriebe',
-            'spec-year': 'Baujahr',
-        };
-        const specLines = [];
-        Object.entries(specLabels).forEach(([qa, label]) => {
-            const el = document.querySelector(`[data-qa-selector="${qa}"]`);
+        push('**Fahrzeugdetails**');
+        const motorData = [];
+        Object.entries(motorMap).forEach(([k, label]) => {
+            const el = document.querySelector(`[data-qa-selector="motor-info-element-${k}"]`);
             if (el && el.textContent.trim()) {
-                specLines.push(`${label}: ${el.textContent.trim()}`);
+                motorData.push(`${label}: ${el.textContent.trim()}`);
             }
         });
-        if (specLines.length) {
-            lines.push('**Kurzfassung:** ' + specLines.join(' · '));
-            lines.push('');
+        if (motorData.length) push(motorData.join(' · '));
+        push('');
+
+        // 3. All feature-section-item properties, grouped by their section
+        // We collect them in order and insert section headers when we encounter different sections
+        const allItems = document.querySelectorAll('[class*="item___qtMsT"]');
+        if (allItems.length) {
+            let currentSection = '';
+            allItems.forEach(item => {
+                // Check if there's a preceding section heading
+                const prevHeading = item.previousElementSibling?.querySelector('h2, h3');
+                if (prevHeading) {
+                    const secText = prevHeading.textContent.trim();
+                    if (secText && secText !== currentSection) {
+                        currentSection = secText;
+                        push(`**${secText}**`);
+                    }
+                }
+                const titleEl = item.querySelector('[data-qa-selector$="-title"]');
+                const bodyEl = item.querySelector('[data-qa-selector$="-body"]');
+                if (titleEl && bodyEl) {
+                    const t = titleEl.textContent.trim();
+                    const v = bodyEl.textContent.trim();
+                    if (t && v) push(`${t}: ${v}`);
+                }
+            });
+            push('');
         }
 
-        // 5. Feature properties table (28 items)
-        const props = getAllProperties();
-        const propValues = Object.values(props).filter(p => p.title && p.value);
-        if (propValues.length) {
-            lines.push('| Eigenschaft | Wert |');
-            lines.push('|---|---|');
-            propValues.forEach(p => lines.push(`| ${p.title} | ${p.value} |`));
-            lines.push('');
-        }
-
-        // 6. Equipment / features (from collapse sections)
+        // 4. Ausstattung — equipment with sub-section labels
         const equipSections = [
-            'collapse-highlights',
-            'collapse-comfort',
-            'collapse-multimedia',
-            'collapse-light-and-sight',
-            'collapse-security',
-            'collapse-additional',
+            { qa: 'collapse-highlights', label: 'Highlights' },
+            { qa: 'collapse-comfort', label: 'Komfort' },
+            { qa: 'collapse-multimedia', label: 'Multimedia' },
+            { qa: 'collapse-light-and-sight', label: 'Licht und Sicht' },
+            { qa: 'collapse-security', label: 'Sicherheit' },
+            { qa: 'collapse-additional', label: 'Weiteres' },
         ];
-        const equipLines = [];
-        equipSections.forEach(qa => {
+        let hasEquipment = false;
+        equipSections.forEach(({ qa, label }) => {
             const section = document.querySelector(`[data-qa-selector="${qa}"]`);
-            if (section) {
-                const items = section.querySelectorAll('[data-qa-selector="equipment-value"]');
-                items.forEach(item => {
-                    const text = item.textContent.trim();
-                    if (text && !equipLines.includes(text)) equipLines.push(text);
-                });
+            if (!section) return;
+            const items = section.querySelectorAll('[data-qa-selector="equipment-value"]');
+            if (!items.length) return;
+            if (!hasEquipment) {
+                push('**Ausstattung**');
+                hasEquipment = true;
             }
+            push(`### ${label}`);
+            items.forEach(item => {
+                const text = item.textContent.trim();
+                if (text) push(`- ${text}`);
+            });
         });
-        if (equipLines.length) {
-            lines.push('**Ausstattung:**');
-            equipLines.forEach(line => lines.push(`- ${line}`));
-            lines.push('');
-        }
+        if (hasEquipment) push('');
 
-        // 7. Vehicle description text
-        const descSection = document.querySelector('[data-qa-selector="vehicle-description-section"]');
-        if (descSection) {
-            const descText = descSection.textContent.trim();
-            if (descText && descText.length > 20) {
-                lines.push('**Beschreibung:**');
-                lines.push(descText.substring(0, 500));
-                lines.push('');
+        // 5. Service history
+        const historySection = document.querySelector('[data-qa-selector="car-history-section"]');
+        if (historySection) {
+            const text = historySection.textContent.trim();
+            if (text.length > 50) {
+                push('**Service & Wartungs-Historie**');
+                // Try to extract individual service records
+                const items = historySection.querySelectorAll('[data-qa-selector="car-history-item"]');
+                if (items.length) {
+                    items.forEach(item => {
+                        const titleEl = item.querySelector('[data-qa-selector="car-history-title"]');
+                        const descEl = item.querySelector('[data-qa-selector="car-history-description"]');
+                        const t = titleEl?.textContent?.trim() || '';
+                        const d = descEl?.textContent?.trim() || '';
+                        if (t) push(`- ${t}: ${d}`);
+                    });
+                } else {
+                    // Fallback: just show the text
+                    push(text.substring(0, 500));
+                }
+                push('');
             }
         }
 
-        // 8. URL
-        lines.push(`🔗 ${window.location.href.split('?')[0]}`);
+        // 6. Check for a secondary wheelset / special notes
+        const secondWheels = document.querySelector('[data-qa-selector="secondary-wheels-section"], [class*="secondaryWheel"]');
+        if (secondWheels) {
+            push('**Zweiter Radsatz**');
+            push(secondWheels.textContent.trim().substring(0, 300));
+            push('');
+        }
+
+        // 7. URL
+        push(`🔗 ${window.location.href.split('?')[0]}`);
         return lines.join('\n');
     }
 
