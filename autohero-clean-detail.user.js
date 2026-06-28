@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      1.9
+// @version      2.0
 // @description  Remove clutter from autohero car detail pages, and pin key vehicle properties to the top
 // @author       gogamid
 // @match        https://www.autohero.com/de/v1/*/id/*
@@ -320,37 +320,55 @@
                 const item = w.querySelector('[data-qa-selector="car-history-item"]');
                 if (!header || !item) return;
                 const hText = header.textContent.trim();
-                // Only process service records (they contain a date like MM.YYYY)
                 if (!hText.match(/\d{2}\.\d{4}/)) return;
 
-                // Format header: extract date, workshop, and mileage
+                // Parse header
                 const dateMatch = hText.match(/(\d{2}\.\d{4})/);
                 const date = dateMatch ? dateMatch[1] : '';
-                // Extract workshop - text after date but before 'Kilometerstand'
-                let workshop = '';
-                const kmIdx = hText.indexOf('Kilometerstand');
-                if (kmIdx > 0) {
-                    workshop = hText.substring(date.length, kmIdx).trim();
-                } else {
-                    workshop = hText.replace(date, '').trim();
-                }
+
+                // Extract everything after the date
+                const afterDate = hText.substring(date.length).trim();
+
                 // Extract mileage
-                let mileage = '';
-                const kmMatch = hText.match(/Kilometerstand[:\s]*([\d.]+\s*km)/i);
-                if (kmMatch) mileage = kmMatch[1];
+                const kmMatch = afterDate.match(/Kilometerstand[:\s]*([\d.]+)\s*km/i);
+                const mileage = kmMatch ? kmMatch[1] + ' km' : '';
+
+                // Extract inspection line (e.g., "Allgemeine Inspektion: Bestanden")
+                const inspMatch = afterDate.match(/(Allgemeine\s+Inspektion|Hauptuntersuchung|Sicherheitsprüfung)[:\s]*(\S+)/i);
+                const inspection = inspMatch ? inspMatch[0].trim() : '';
+
+                // The workshop is anything between date and kilometer/mileage info
+                let workshop = afterDate;
+                if (kmMatch) workshop = afterDate.substring(0, kmMatch.index).trim();
+                else if (inspection) workshop = afterDate.substring(0, afterDate.indexOf(inspMatch[1])).trim();
+                // Clean up workshop text
+                workshop = workshop.replace(/Kilometerstand.*$/, '').replace(/\s+/g, ' ').trim();
 
                 if (date) serviceEntries.push(`**${date}**`);
                 if (workshop) serviceEntries.push(`Ort: ${workshop}`);
                 if (mileage) serviceEntries.push(`km: ${mileage}`);
+                if (inspection) serviceEntries.push(`Status: ${inspection}`);
 
-                // Collect all text from direct child divs (skip status icons)
-                const tasks = [];
-                item.querySelectorAll(':scope > div').forEach(child => {
-                    const t = child.textContent.trim();
-                    if (t) tasks.push(t);
+                // Extract tasks from car-history-item
+                const taskDivs = [];
+                item.querySelectorAll(':scope > div').forEach(c => {
+                    const t = c.textContent.trim();
+                    if (t) taskDivs.push(t);
                 });
-                if (tasks.length) {
-                    tasks.forEach(t => serviceEntries.push(`  - ${t}`));
+
+                // Pair tasks with status words (Erneuert, Bestanden, Geprüft, Ersetzt)
+                const statusWords = ['Erneuert', 'Bestanden', 'Geprüft', 'Ersetzt', 'Neu'];
+                let i = 0;
+                while (i < taskDivs.length) {
+                    const task = taskDivs[i];
+                    const next = i + 1 < taskDivs.length ? taskDivs[i + 1] : '';
+                    if (next && statusWords.includes(next)) {
+                        serviceEntries.push(`  - ${task} (${next})`);
+                        i += 2;
+                    } else {
+                        serviceEntries.push(`  - ${task}`);
+                        i += 1;
+                    }
                 }
                 serviceEntries.push('');
             });
