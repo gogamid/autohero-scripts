@@ -1,11 +1,14 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/gogamid/autohero-scripts
 // @version      1.1
 // @description  Remove clutter from autohero car detail pages, and pin key vehicle properties to the top
-// @author       You
+// @author       gogamid
 // @match        https://www.autohero.com/de/v1/*/id/*
 // @icon         https://www.autohero.com/favicon.ico
+// @updateURL    https://cdn.jsdelivr.net/gh/gogamid/autohero-scripts@main/autohero-clean-detail.user.js
+// @downloadURL  https://cdn.jsdelivr.net/gh/gogamid/autohero-scripts@main/autohero-clean-detail.user.js
+// @supportURL   https://github.com/gogamid/autohero-scripts/issues
 // @grant        GM_addStyle
 // ==/UserScript==
 
@@ -60,15 +63,12 @@
         localStorage.setItem(STORAGE_KEY, JSON.stringify(keys));
     }
 
-    // Get ALL property key-value pairs from the page
     function getAllProperties() {
         const props = {};
-        // Select only title elements that are feature-section-items
         const titles = document.querySelectorAll('[data-qa-selector^="feature-section-item-"][data-qa-selector$="-title"]');
         titles.forEach(titleEl => {
             const qa = titleEl.getAttribute('data-qa-selector');
             const key = qa.replace('feature-section-item-', '').replace('-title', '');
-            // The parent div (item___qtMsT) contains both title and body as direct children
             const parent = titleEl.parentElement;
             const bodyEl = parent.querySelector('[data-qa-selector$="-body"]');
             props[key] = {
@@ -80,7 +80,6 @@
         return props;
     }
 
-    // Build/update the sticky pinned-bar at the top
     function updatePinnedBar() {
         let bar = document.getElementById('ah-pinned-bar');
         if (!bar) {
@@ -117,7 +116,6 @@
             bar.classList.add('ah-empty');
         }
 
-        // Unpin handler
         bar.querySelectorAll('.ah-unpin').forEach(btn => {
             btn.addEventListener('click', () => {
                 const key = btn.getAttribute('data-key');
@@ -128,11 +126,9 @@
         });
     }
 
-    // Add/refresh pin buttons next to each property title
     function updatePinButtons() {
         const pinnedKeys = getPinnedKeys();
         const props = getAllProperties();
-
         document.querySelectorAll('.ah-pin-btn').forEach(el => el.remove());
 
         Object.entries(props).forEach(([key, prop]) => {
@@ -158,7 +154,6 @@
         });
     }
 
-    // Remove page clutter
     function removeClutter() {
         const conv = document.querySelector('section[class*="conversionArea"]');
         if (conv) conv.remove();
