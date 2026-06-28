@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      1.1
+// @version      1.2
 // @description  Remove clutter from autohero car detail pages, and pin key vehicle properties to the top
 // @author       gogamid
 // @match        https://www.autohero.com/de/v1/*/id/*
@@ -155,6 +155,7 @@
     }
 
     function removeClutter() {
+        // ─── Sidebar / Conversion ───
         const conv = document.querySelector('section[class*="conversionArea"]');
         if (conv) conv.remove();
 
@@ -184,6 +185,47 @@
                 }
             } catch(e) {}
         });
+
+        // ─── Navigation menu links (keep Fahrzeugdetails, Ausstattung, Service-Historie) ───
+        const menuIds = [
+            'menu-link-vehicle-condition',        // Unsere Qualitätsstandards
+            'menu-link-financing-calculator-section', // Finanzieren
+            'menu-link-delivery',                 // Lieferung und Abholung
+            'menu-link-warranty',                 // Garantie
+            'menu-link-trade-in-widget',          // Inzahlungnahme
+            'menu-link-personalized-recommendations', // Empfehlungen
+            'menu-link-how-it-works',             // So funktioniert's
+            'menu-link-faq',                      // Hilfe & FAQ
+        ];
+        menuIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        });
+
+        // ─── Content sections ───
+        const sectionIds = [
+            'vehicle-condition',        // Qualitätsstandard block
+            'financing-calculator-section', // Finanzierung individuell gestalten
+            'delivery',                 // Lieferung und Abholung
+            'warranty',                 // Steig auf Premium (Garantie)
+            'trade-in-widget',          // Was ist dein Auto noch wert?
+            'personalized-recommendations', // Empfehlungen
+            'how-it-works',             // So funktioniert's
+            'faq',                      // Hilfe & FAQ
+        ];
+        sectionIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        });
+
+        // Autobild heading (standalone)
+        try {
+            const autobild = document.evaluate('//h3[contains(text(),"Autobild")]', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            if (autobild) {
+                const wrapper = autobild.closest('[class*="wrapper"]');
+                if (wrapper) wrapper.remove();
+            }
+        } catch(e) {}
     }
 
     function init() {
