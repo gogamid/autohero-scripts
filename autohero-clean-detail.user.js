@@ -341,13 +341,15 @@
                 let workshop = afterDate;
                 if (kmMatch) workshop = afterDate.substring(0, kmMatch.index).trim();
                 else if (inspection) workshop = afterDate.substring(0, afterDate.indexOf(inspMatch[1])).trim();
-                // Clean up workshop text
+                // Clean up workshop: remove duplicate words and extra whitespace
                 workshop = workshop.replace(/Kilometerstand.*$/, '').replace(/\s+/g, ' ').trim();
+                // Remove duplicate words like "Autohero Autohero"
+                workshop = workshop.replace(/\b(\w+)\s+\1\b/g, '$1');
 
                 if (date) serviceEntries.push(`**${date}**`);
                 if (workshop) serviceEntries.push(`Ort: ${workshop}`);
                 if (mileage) serviceEntries.push(`km: ${mileage}`);
-                if (inspection) serviceEntries.push(`Status: ${inspection}`);
+                if (inspection) serviceEntries.push(`Status: ${inspection.replace(/:/g, ': ')}`);
 
                 // Extract tasks from car-history-item
                 const taskDivs = [];
