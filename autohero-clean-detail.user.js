@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      1.2
+// @version      1.3
 // @description  Remove clutter from autohero car detail pages, and pin key vehicle properties to the top
 // @author       gogamid
 // @match        https://www.autohero.com/de/v1/*/id/*
@@ -54,6 +54,14 @@
         [data-qa-selector$="-title"] {
             display: inline-flex; align-items: center;
         }
+        #ah-copy-btn {
+            margin-left: auto; padding: 5px 12px; border: none; border-radius: 6px;
+            background: #0f3460; color: #fff; cursor: pointer;
+            font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            white-space: nowrap; transition: background .15s;
+        }
+        #ah-copy-btn:hover { background: #1a5276; }
+        #ah-copy-btn.copied { background: #27ae60; }
     `);
 
     function getPinnedKeys() {
@@ -228,11 +236,71 @@
         } catch(e) {}
     }
 
+    // ── Extract all car details as formatted text ─────────────────
+    function extractCarDetails() {
+        const props = getAllProperties();
+        const title = document.querySelector('h1')?.textContent?.trim() || '';
+        const subtitle = document.querySelector('[data-qa-selector="vehicle-info-subtitle"], h2, h3')?.textContent?.trim() || '';
+        const price = document.querySelector('[data-qa-selector="vehicle-info-price"]')?.textContent?.trim() || '';
+
+        const lines = [];
+        if (title) lines.push(`# ${title}`);
+        if (price) lines.push(`**Preis:** ${price}`);
+        lines.push('');
+        lines.push('| Eigenschaft | Wert |');
+        lines.push('|---|---|');
+        Object.values(props).forEach(p => {
+            if (p.title && p.value) lines.push(`| ${p.title} | ${p.value} |`);
+        });
+        lines.push('');
+        lines.push(`🔗 ${window.location.href.split('?')[0]}`);
+        return lines.join('\n');
+    }
+
+    // ── Copy button handler ────────────────────────────────────────
+    function setupCopyButton() {
+        const bar = document.getElementById('ah-pinned-bar');
+        if (!bar || document.getElementById('ah-copy-btn')) return;
+
+        const btn = document.createElement('button');
+        btn.id = 'ah-copy-btn';
+        btn.textContent = '📋 Copy';
+        btn.addEventListener('click', async () => {
+            const text = extractCarDetails();
+            try {
+                await navigator.clipboard.writeText(text);
+                btn.textContent = '✅ Copied!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = '📋 Copy';
+                    btn.classList.remove('copied');
+                }, 2000);
+            } catch {
+                // Fallback for older browsers
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed'; ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                ta.remove();
+                btn.textContent = '✅ Copied!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = '📋 Copy';
+                    btn.classList.remove('copied');
+                }, 2000);
+            }
+        });
+        bar.appendChild(btn);
+    }
+
     function init() {
         removeClutter();
         setTimeout(() => {
             updatePinnedBar();
             updatePinButtons();
+            setupCopyButton();
         }, 200);
         new MutationObserver(() => {
             if (document.querySelector('iframe[src*="trustpilot"]')) removeClutter();
