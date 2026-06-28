@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      1.8
+// @version      1.9
 // @description  Remove clutter from autohero car detail pages, and pin key vehicle properties to the top
 // @author       gogamid
 // @match        https://www.autohero.com/de/v1/*/id/*
@@ -310,7 +310,7 @@
         });
         if (hasEquipment) push('');
 
-        // 5. Service history — iterate collapse-wrapper elements inside car-history-section
+        // 5. Service history — extract service records from car-history-section
         const historySection = document.querySelector('[data-qa-selector="car-history-section"]');
         if (historySection) {
             const records = historySection.querySelectorAll('[data-qa-selector="collapse-wrapper"]');
@@ -318,22 +318,45 @@
             records.forEach(w => {
                 const header = w.querySelector('[data-qa-selector="ah-collapse-header"]');
                 const item = w.querySelector('[data-qa-selector="car-history-item"]');
-                if (header && item) {
-                    const hText = header.textContent.trim();
-                    if (hText && (hText.includes('Service') || hText.includes('Wartung') || hText.match(/\d{2}\.\d{4}/) || hText.match(/km/))) {
-                        serviceEntries.push(`**${hText}**`);
-                        // Each task is a direct child div with text
-                        item.querySelectorAll(':scope > div').forEach(child => {
-                            const t = child.textContent.trim();
-                            if (t) serviceEntries.push(`  - ${t}`);
-                        });
-                    }
+                if (!header || !item) return;
+                const hText = header.textContent.trim();
+                // Only process service records (they contain a date like MM.YYYY)
+                if (!hText.match(/\d{2}\.\d{4}/)) return;
+
+                // Format header: extract date, workshop, and mileage
+                const dateMatch = hText.match(/(\d{2}\.\d{4})/);
+                const date = dateMatch ? dateMatch[1] : '';
+                // Extract workshop - text after date but before 'Kilometerstand'
+                let workshop = '';
+                const kmIdx = hText.indexOf('Kilometerstand');
+                if (kmIdx > 0) {
+                    workshop = hText.substring(date.length, kmIdx).trim();
+                } else {
+                    workshop = hText.replace(date, '').trim();
                 }
+                // Extract mileage
+                let mileage = '';
+                const kmMatch = hText.match(/Kilometerstand[:\s]*([\d.]+\s*km)/i);
+                if (kmMatch) mileage = kmMatch[1];
+
+                if (date) serviceEntries.push(`**${date}**`);
+                if (workshop) serviceEntries.push(`Ort: ${workshop}`);
+                if (mileage) serviceEntries.push(`km: ${mileage}`);
+
+                // Collect all text from direct child divs (skip status icons)
+                const tasks = [];
+                item.querySelectorAll(':scope > div').forEach(child => {
+                    const t = child.textContent.trim();
+                    if (t) tasks.push(t);
+                });
+                if (tasks.length) {
+                    tasks.forEach(t => serviceEntries.push(`  - ${t}`));
+                }
+                serviceEntries.push('');
             });
             if (serviceEntries.length) {
                 push('**Service & Wartungs-Historie**');
                 serviceEntries.forEach(line => push(line));
-                push('');
             }
         }
 
