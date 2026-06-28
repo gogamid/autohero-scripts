@@ -5,7 +5,6 @@
 // @description  Remove clutter from autohero car detail pages, and pin key vehicle properties to the top
 // @author       gogamid
 // @match        https://www.autohero.com/de/v1/*/id/*
-// @match        https://www.autohero.com/de/*/id/*
 // @icon         https://www.autohero.com/favicon.ico
 // @updateURL    https://cdn.jsdelivr.net/gh/gogamid/autohero-scripts@main/autohero-clean-detail.user.js
 // @downloadURL  https://cdn.jsdelivr.net/gh/gogamid/autohero-scripts@main/autohero-clean-detail.user.js
@@ -18,7 +17,45 @@
 
     const STORAGE_KEY = 'ah_pinned_props';
 
+    // ─── Hide clutter via CSS (safe for React hydration) ───────────
     GM_addStyle(`
+        /* Hide price sidebar / conversion area */
+        section[class*="conversionArea"] { display: none !important; }
+
+        /* Hide USP bar */
+        [class*="usps___"] { display: none !important; }
+
+        /* Hide Trustpilot widget and its wrapper */
+        iframe[src*="trustpilot"] { display: none !important; }
+        iframe[src*="trustpilot"] ~ div, iframe[src*="trustpilot"] + * { display: none !important; }
+
+
+
+        /* Hide navigation menu links */
+        #menu-link-vehicle-condition,
+        #menu-link-financing-calculator-section,
+        #menu-link-delivery,
+        #menu-link-warranty,
+        #menu-link-trade-in-widget,
+        #menu-link-personalized-recommendations,
+        #menu-link-how-it-works,
+        #menu-link-faq {
+            display: none !important;
+        }
+
+        /* Hide content sections */
+        #vehicle-condition,
+        #financing-calculator-section,
+        #delivery,
+        #warranty,
+        #trade-in-widget,
+        #personalized-recommendations,
+        #how-it-works,
+        #faq {
+            display: none !important;
+        }
+
+        /* ─── Pinned bar styles ─── */
         #ah-pinned-bar {
             position: sticky; top: 0; z-index: 9999;
             background: #1a1a2e; color: #fff;
@@ -163,80 +200,6 @@
         });
     }
 
-    function removeClutter() {
-        // ─── Sidebar / Conversion ───
-        const conv = document.querySelector('section[class*="conversionArea"]');
-        if (conv) conv.remove();
-
-        document.querySelectorAll('[class*="usp___"]').forEach(el => {
-            const p = el.closest('[class*="usps___"]');
-            if (p) p.remove(); else el.remove();
-        });
-
-        const tp = document.querySelector('iframe[src*="trustpilot"]');
-        if (tp) {
-            const w = tp.closest('div, section, aside') || tp.parentElement;
-            if (w) w.remove();
-        }
-
-        const legend = document.querySelector('legend');
-        if (legend) {
-            const fs = legend.closest('fieldset, div[class*="container"]');
-            if (fs) fs.remove();
-        }
-
-        ['Benachrichtigung bei Preisreduzierung', 'Passe deine Bestellung an', 'Kontaktiere uns'].forEach(text => {
-            try {
-                const el = document.evaluate('//*[contains(text(),"' + text + '")]', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                if (el) {
-                    const section = el.closest('[class*="conversionArea"], [class*="informationalContent"]');
-                    if (section) section.remove(); else el.remove();
-                }
-            } catch(e) {}
-        });
-
-        // ─── Navigation menu links (keep Fahrzeugdetails, Ausstattung, Service-Historie) ───
-        const menuIds = [
-            'menu-link-vehicle-condition',        // Unsere Qualitätsstandards
-            'menu-link-financing-calculator-section', // Finanzieren
-            'menu-link-delivery',                 // Lieferung und Abholung
-            'menu-link-warranty',                 // Garantie
-            'menu-link-trade-in-widget',          // Inzahlungnahme
-            'menu-link-personalized-recommendations', // Empfehlungen
-            'menu-link-how-it-works',             // So funktioniert's
-            'menu-link-faq',                      // Hilfe & FAQ
-        ];
-        menuIds.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.remove();
-        });
-
-        // ─── Content sections ───
-        const sectionIds = [
-            'vehicle-condition',        // Qualitätsstandard block
-            'financing-calculator-section', // Finanzierung individuell gestalten
-            'delivery',                 // Lieferung und Abholung
-            'warranty',                 // Steig auf Premium (Garantie)
-            'trade-in-widget',          // Was ist dein Auto noch wert?
-            'personalized-recommendations', // Empfehlungen
-            'how-it-works',             // So funktioniert's
-            'faq',                      // Hilfe & FAQ
-        ];
-        sectionIds.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.remove();
-        });
-
-        // Autobild heading (standalone)
-        try {
-            const autobild = document.evaluate('//h3[contains(text(),"Autobild")]', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-            if (autobild) {
-                const wrapper = autobild.closest('[class*="wrapper"]');
-                if (wrapper) wrapper.remove();
-            }
-        } catch(e) {}
-    }
-
     // ── Extract all car details as formatted text ─────────────────
     function extractCarDetails() {
         const props = getAllProperties();
@@ -277,7 +240,6 @@
                     btn.classList.remove('copied');
                 }, 2000);
             } catch {
-                // Fallback for older browsers
                 const ta = document.createElement('textarea');
                 ta.value = text;
                 ta.style.position = 'fixed'; ta.style.left = '-9999px';
@@ -296,16 +258,47 @@
         bar.appendChild(btn);
     }
 
+    // ── Hide text-based clutter that CSS can't catch ──────────────
+    // This runs after React hydrates, using inline style (still safe)
+    function hideTextClutter() {
+        ['Benachrichtigung bei Preisreduzierung', 'Passe deine Bestellung an', 'Kontaktiere uns'].forEach(text => {
+            try {
+                const el = document.evaluate(
+                    '//*[contains(text(),"' + text + '")]',
+                    document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+                ).singleNodeValue;
+                if (el) {
+                    // Use style instead of remove to keep React happy
+                    el.style.display = 'none';
+                    // Also hide parent container if it's a wrapper
+                    const section = el.closest('[class*="conversionArea"], [class*="informationalContent"], div');
+                    if (section && section !== document.body) section.style.display = 'none';
+                }
+            } catch(e) {}
+        });
+
+        // Hide "Stolz, einer der besten Autohändler von Autobild" — CSS fallback
+        try {
+            const h3 = document.evaluate(
+                '//h3[contains(text(),"Autobild")]',
+                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+            ).singleNodeValue;
+            if (h3) {
+                h3.style.display = 'none';
+                const wrapper = h3.closest('[class*="wrapper"]');
+                if (wrapper) wrapper.style.display = 'none';
+            }
+        } catch(e) {}
+    }
+
     function init() {
-        removeClutter();
+        // Wait for React to finish hydrating before any DOM changes
         setTimeout(() => {
+            hideTextClutter();
             updatePinnedBar();
             updatePinButtons();
             setupCopyButton();
-        }, 200);
-        new MutationObserver(() => {
-            if (document.querySelector('iframe[src*="trustpilot"]')) removeClutter();
-        }).observe(document.body, { childList: true, subtree: true });
+        }, 800);
     }
 
     if (document.readyState === 'loading') {
