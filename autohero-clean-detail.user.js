@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      1.5
+// @version      1.6
 // @description  Remove clutter from autohero car detail pages, and pin key vehicle properties to the top
 // @author       gogamid
 // @match        https://www.autohero.com/de/v1/*/id/*
@@ -210,23 +210,120 @@
         });
     }
 
-    // ── Extract all car details as formatted text ─────────────────
+    // ── Extract ALL car details as formatted text ────────────────
     function extractCarDetails() {
-        const props = getAllProperties();
-        const title = document.querySelector('h1')?.textContent?.trim() || '';
-        const subtitle = document.querySelector('[data-qa-selector="vehicle-info-subtitle"], h2, h3')?.textContent?.trim() || '';
-        const price = document.querySelector('[data-qa-selector="vehicle-info-price"]')?.textContent?.trim() || '';
-
         const lines = [];
+
+        // 1. Car title + subtitle
+        const title = document.querySelector('[data-qa-selector="vehicle-info-title"]')?.textContent?.trim()
+            || document.querySelector('h1')?.textContent?.trim() || '';
+        const subtitle = document.querySelector('[data-qa-selector="vehicle-info-subtitle"]')?.textContent?.trim() || '';
         if (title) lines.push(`# ${title}`);
-        if (price) lines.push(`**Preis:** ${price}`);
+        if (subtitle) lines.push(`**${subtitle}**`);
+
+        // 2. Price info
+        const price = document.querySelector('[data-qa-selector="vehicle-info-price"]')?.textContent?.trim() || '';
+        const monthly = document.querySelector('[data-qa-selector="vehicle-info-monthly-price"]')?.textContent?.trim() || '';
+        const oldPrice = document.querySelector('[data-qa-selector="old-price"]')?.textContent?.trim() || '';
+        const priceParts = [];
+        if (price) priceParts.push(`Preis: ${price}`);
+        if (oldPrice) priceParts.push(`statt ${oldPrice}`);
+        if (monthly) priceParts.push(`monatlich: ${monthly}`);
+        if (priceParts.length) lines.push(priceParts.join(' — '));
         lines.push('');
-        lines.push('| Eigenschaft | Wert |');
-        lines.push('|---|---|');
-        Object.values(props).forEach(p => {
-            if (p.title && p.value) lines.push(`| ${p.title} | ${p.value} |`);
+
+        // 3. Motor / quick specs (from motor-info section)
+        const motorLabels = {
+            'builtYear': 'Baujahr',
+            'mileage': 'Kilometerstand',
+            'power': 'Leistung',
+            'gearType': 'Getriebe',
+            'carPreownerCount': 'Vorbesitzer',
+            'lastService': 'Letzter Service',
+            'accident': 'Fahrzeugzustand',
+        };
+        const motorLines = [];
+        Object.entries(motorLabels).forEach(([key, label]) => {
+            const el = document.querySelector(`[data-qa-selector="motor-info-title-${key}"]`);
+            const valEl = document.querySelector(`[data-qa-selector="motor-info-element-${key}"]`);
+            if (el && valEl) {
+                motorLines.push(`${label}: ${valEl.textContent.trim()}`);
+            }
         });
-        lines.push('');
+        if (motorLines.length) {
+            lines.push(motorLines.join(' | '));
+            lines.push('');
+        }
+
+        // 4. Spec list (fuel, consumption, CO2)
+        const specLabels = {
+            'spec-fuel': 'Kraftstoff',
+            'spec-fuelConsumption': 'Verbrauch',
+            'spec-co2Value': 'CO₂',
+            'spec-mileage': 'Kilometerstand',
+            'spec-gear': 'Getriebe',
+            'spec-year': 'Baujahr',
+        };
+        const specLines = [];
+        Object.entries(specLabels).forEach(([qa, label]) => {
+            const el = document.querySelector(`[data-qa-selector="${qa}"]`);
+            if (el && el.textContent.trim()) {
+                specLines.push(`${label}: ${el.textContent.trim()}`);
+            }
+        });
+        if (specLines.length) {
+            lines.push('**Kurzfassung:** ' + specLines.join(' · '));
+            lines.push('');
+        }
+
+        // 5. Feature properties table (28 items)
+        const props = getAllProperties();
+        const propValues = Object.values(props).filter(p => p.title && p.value);
+        if (propValues.length) {
+            lines.push('| Eigenschaft | Wert |');
+            lines.push('|---|---|');
+            propValues.forEach(p => lines.push(`| ${p.title} | ${p.value} |`));
+            lines.push('');
+        }
+
+        // 6. Equipment / features (from collapse sections)
+        const equipSections = [
+            'collapse-highlights',
+            'collapse-comfort',
+            'collapse-multimedia',
+            'collapse-light-and-sight',
+            'collapse-security',
+            'collapse-additional',
+        ];
+        const equipLines = [];
+        equipSections.forEach(qa => {
+            const section = document.querySelector(`[data-qa-selector="${qa}"]`);
+            if (section) {
+                const items = section.querySelectorAll('[data-qa-selector="equipment-value"]');
+                items.forEach(item => {
+                    const text = item.textContent.trim();
+                    if (text && !equipLines.includes(text)) equipLines.push(text);
+                });
+            }
+        });
+        if (equipLines.length) {
+            lines.push('**Ausstattung:**');
+            equipLines.forEach(line => lines.push(`- ${line}`));
+            lines.push('');
+        }
+
+        // 7. Vehicle description text
+        const descSection = document.querySelector('[data-qa-selector="vehicle-description-section"]');
+        if (descSection) {
+            const descText = descSection.textContent.trim();
+            if (descText && descText.length > 20) {
+                lines.push('**Beschreibung:**');
+                lines.push(descText.substring(0, 500));
+                lines.push('');
+            }
+        }
+
+        // 8. URL
         lines.push(`🔗 ${window.location.href.split('?')[0]}`);
         return lines.join('\n');
     }
