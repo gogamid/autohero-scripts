@@ -1,9 +1,15 @@
 // ==UserScript==
 // @name         Autohero - Search Filters
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      3.2
+// @version      3.3
 // @description  Filter search cards by prior damage, owners, HU/AU expiry, commercial use and origin
+// @author       gogamid
 // @match        https://www.autohero.com/de/search/*
+// @icon         https://www.autohero.com/favicon.ico
+// @homepageURL  https://github.com/gogamid/autohero-scripts
+// @updateURL    https://cdn.jsdelivr.net/gh/gogamid/autohero-scripts@main/autohero-search-filters.user.js
+// @downloadURL  https://cdn.jsdelivr.net/gh/gogamid/autohero-scripts@main/autohero-search-filters.user.js
+// @supportURL   https://github.com/gogamid/autohero-scripts/issues
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
