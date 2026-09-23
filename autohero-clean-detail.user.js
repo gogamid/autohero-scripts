@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      2.7
+// @version      2.8
 // @description  Clean car detail pages, pin properties, and copy complete details as Markdown
 // @author       gogamid
 // @match        https://www.autohero.com/de/*/id/*
@@ -118,7 +118,7 @@
         #ah-wheel-grid {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
             gap: 16px; max-width: 1100px; margin: 24px auto;
-            padding: 0 16px; box-sizing: border-box;
+            padding: 0 16px; box-sizing: border-box; width: 100%; min-width: 0;
         }
         #ah-wheel-grid article {
             border: 1px solid #dce3ea; border-radius: 10px;
@@ -138,30 +138,35 @@
         }
         #ah-damage-gallery .ah-damage-header {
             display: flex; align-items: center; justify-content: space-between;
-            gap: 12px; margin-bottom: 12px;
+            flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px;
         }
         #ah-damage-gallery h2 { margin: 0; font-size: 22px; }
-        #ah-damage-gallery .ah-damage-controls { display: flex; gap: 8px; }
+        #ah-damage-gallery .ah-damage-controls { display: flex; align-items: center; gap: 8px; }
+        #ah-damage-gallery .ah-damage-status { font-size: 14px; font-weight: 600; }
         #ah-damage-gallery button {
             border: 1px solid #c8d5e1; background: #fff; color: #003e70;
             border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 20px;
         }
         #ah-damage-gallery button:disabled { opacity: .4; cursor: default; }
         #ah-damage-track {
-            display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, 1fr);
-            grid-auto-columns: clamp(170px, 20vw, 230px); gap: 10px;
-            overflow-x: auto; overscroll-behavior-inline: contain;
-            scroll-snap-type: x mandatory; padding-bottom: 8px; cursor: grab;
+            display: grid; grid-template-columns: repeat(var(--ah-damage-columns), minmax(0, 1fr));
+            gap: 10px; width: 100%; min-width: 0; box-sizing: border-box;
         }
-        #ah-damage-track:active { cursor: grabbing; }
         #ah-damage-track figure {
             margin: 0; border: 1px solid #dce3ea; border-radius: 8px;
-            overflow: hidden; background: #fff; scroll-snap-align: start;
+            overflow: hidden; background: #fff; min-width: 0;
         }
         #ah-damage-track img {
             display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
         }
-        #ah-damage-track figcaption { padding: 7px 9px; font-size: 12px; line-height: 1.3; }
+        #ah-damage-track figcaption {
+            padding: 7px 9px; font-size: 12px; line-height: 1.3; overflow-wrap: anywhere;
+        }
+        @media (max-width: 600px) {
+            #ah-damage-gallery { padding: 16px 10px; }
+            #ah-damage-gallery h2 { font-size: 18px; }
+            #ah-damage-gallery .ah-damage-status { font-size: 12px; }
+        }
     `);
 
   function getPinnedKeys() {
@@ -260,67 +265,82 @@
     heading.textContent = "Gebrauchsspuren";
     const controls = document.createElement("div");
     controls.className = "ah-damage-controls";
+    const status = document.createElement("span");
+    status.className = "ah-damage-status";
+    status.setAttribute("aria-live", "polite");
     const track = document.createElement("div");
     track.id = "ah-damage-track";
-    track.tabIndex = 0;
-    track.setAttribute("aria-label", "Gebrauchsspuren, horizontal scrollen");
     const buttons = [-1, 1].map((direction) => {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = direction < 0 ? "‹" : "›";
-      button.setAttribute("aria-label", direction < 0 ? "Vorherige Gebrauchsspuren" : "Nächste Gebrauchsspuren");
-      button.addEventListener("click", () =>
-        track.scrollBy({ left: direction * track.clientWidth * 0.8, behavior: "smooth" }));
+      button.setAttribute("aria-label", direction < 0 ? "Vorherige Seite" : "Nächste Seite");
+      button.addEventListener("click", () => {
+        currentPage += direction;
+        renderPage();
+      });
       controls.appendChild(button);
       return button;
     });
 
+    const groups = new Map();
     data.car.damages.forEach((ref) => {
       const damage = data.state[ref.__ref];
       const image = data.state[damage?.image?.__ref];
       if (!damage?.part || !damage?.type || !image?.fullUrl) return;
-      const caption = `${damage.part} | ${damage.type}`;
-      const figure = document.createElement("figure");
-      const img = document.createElement("img");
-      img.src = image.fullUrl.replace("{size}", "992x744-");
-      img.alt = caption;
-      img.loading = "lazy";
-      img.draggable = false;
-      const label = document.createElement("figcaption");
-      label.textContent = caption;
-      figure.append(img, label);
-      track.appendChild(figure);
+      if (!groups.has(damage.type)) groups.set(damage.type, []);
+      groups.get(damage.type).push({ part: damage.part, url: image.fullUrl });
     });
-    if (!track.children.length) return;
-    const updateButtons = () => {
-      buttons[0].disabled = track.scrollLeft < 2;
-      buttons[1].disabled = track.scrollLeft + track.clientWidth >= track.scrollWidth - 2;
+    if (!groups.size) return;
+
+    let pages = [];
+    let currentPage = 0;
+    let columns = 0;
+    const renderPage = () => {
+      const page = pages[currentPage];
+      if (!page) return;
+      track.replaceChildren();
+      page.items.forEach(({ part, url }) => {
+        const figure = document.createElement("figure");
+        const img = document.createElement("img");
+        img.src = url.replace("{size}", "992x744-");
+        img.alt = `${part} | ${page.type}`;
+        img.loading = "lazy";
+        const label = document.createElement("figcaption");
+        label.textContent = part;
+        figure.append(img, label);
+        track.appendChild(figure);
+      });
+      const categoryPages = pages.filter((entry) => entry.type === page.type);
+      status.textContent = `${page.type} · ${categoryPages.indexOf(page) + 1}/${categoryPages.length} · Seite ${currentPage + 1}/${pages.length}`;
+      buttons[0].disabled = currentPage === 0;
+      buttons[1].disabled = currentPage === pages.length - 1;
     };
-    track.addEventListener("scroll", updateButtons, { passive: true });
-    let dragStart = null;
-    track.addEventListener("pointerdown", (event) => {
-      if (event.pointerType !== "mouse" || event.button !== 0) return;
-      dragStart = { x: event.clientX, scroll: track.scrollLeft };
-      track.style.scrollSnapType = "none";
-      track.setPointerCapture(event.pointerId);
-    });
-    track.addEventListener("pointermove", (event) => {
-      if (!dragStart) return;
-      if (Math.abs(event.clientX - dragStart.x) > 3) event.preventDefault();
-      track.scrollLeft = dragStart.scroll + dragStart.x - event.clientX;
-    });
-    const stopDragging = () => {
-      dragStart = null;
-      track.style.scrollSnapType = "";
+    const layoutPages = () => {
+      const minWidth = track.clientWidth <= 600 ? 130 : 180;
+      const nextColumns = Math.max(1, Math.floor((track.clientWidth + 10) / (minWidth + 10)));
+      if (nextColumns === columns) return;
+      const previous = pages[currentPage];
+      columns = nextColumns;
+      track.style.setProperty("--ah-damage-columns", columns);
+      pages = [...groups].flatMap(([type, items]) => {
+        const entries = [];
+        for (let start = 0; start < items.length; start += 2 * columns)
+          entries.push({ type, start, items: items.slice(start, start + 2 * columns) });
+        return entries;
+      });
+      currentPage = previous
+        ? Math.max(0, pages.findIndex((page) => page.type === previous.type &&
+          page.start <= previous.start && previous.start < page.start + page.items.length))
+        : 0;
+      renderPage();
     };
-    track.addEventListener("pointerup", stopDragging);
-    track.addEventListener("pointercancel", stopDragging);
-    track.addEventListener("lostpointercapture", stopDragging);
-    window.addEventListener("resize", updateButtons);
+    controls.insertBefore(status, buttons[1]);
     header.append(heading, controls);
     section.append(header, track);
     gallery.parentElement.insertAdjacentElement("afterend", section);
-    updateButtons();
+    new ResizeObserver(layoutPages).observe(track);
+    layoutPages();
   }
 
   async function setupSecondaryWheels() {
