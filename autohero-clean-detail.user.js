@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      2.3
+// @version      2.5
 // @description  Clean car detail pages, pin properties, and copy complete details as Markdown
 // @author       gogamid
 // @match        https://www.autohero.com/de/*/id/*
@@ -16,6 +16,7 @@
   "use strict";
 
   const STORAGE_KEY = "ah_pinned_props";
+  const PINNED_BAR_HIDDEN_KEY = "ah_pinned_bar_hidden";
 
   // ─── Hide clutter via CSS (safe for React hydration) ───────────
   GM_addStyle(`
@@ -78,9 +79,6 @@
             cursor: pointer; opacity: 0.6; margin-left: 2px; font-size: 11px;
         }
         #ah-pinned-bar .ah-unpin:hover { opacity: 1; }
-        #ah-pinned-bar.ah-empty {
-            color: #a0aec0; font-size: 12px; padding: 6px 20px; min-height: auto;
-        }
         .ah-pin-btn {
             cursor: pointer; opacity: 0.4; font-size: 12px; margin-left: 4px;
             display: inline-flex; align-items: center; user-select: none;
@@ -91,11 +89,16 @@
         [data-qa-selector$="-title"] {
             display: inline-flex; align-items: center;
         }
-        #ah-copy-btn {
+        #ah-actions {
             position: fixed !important;
             bottom: 20px !important;
             right: 20px !important;
             z-index: 99999 !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+        }
+        #ah-actions button {
             padding: 11px 18px !important;
             border: none !important;
             border-radius: 8px !important;
@@ -107,6 +110,9 @@
             box-shadow: 0 2px 12px rgba(0,0,0,0.3) !important;
             transition: background .15s !important;
         }
+        #ah-pins-toggle { background: #16213e !important; }
+        #ah-pins-toggle:hover { background: #24395e !important; }
+        #ah-pins-toggle:disabled { opacity: .6; cursor: default !important; }
         #ah-copy-btn:hover { background: #1a5276 !important; }
         #ah-copy-btn.copied { background: #27ae60 !important; }
     `);
@@ -120,6 +126,10 @@
   }
   function savePinnedKeys(keys) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(keys));
+  }
+
+  function isPinnedBarHidden() {
+    return localStorage.getItem(PINNED_BAR_HIDDEN_KEY) !== "false";
   }
 
   function getAllProperties() {
@@ -187,40 +197,39 @@
 
   function updatePinnedBar() {
     let bar = document.getElementById("ah-pinned-bar");
+    const pinnedKeys = getPinnedKeys();
+    const props = getAllProperties();
+    const available = pinnedKeys.filter((key) => props[key]?.value);
+    const hidden = isPinnedBarHidden();
+    const toggle = document.getElementById("ah-pins-toggle");
+    if (toggle) {
+      toggle.textContent = available.length === 0
+        ? "📌 Keine Pins"
+        : hidden ? `📌 ${available.length} anzeigen` : "📌 Ausblenden";
+      toggle.disabled = available.length === 0;
+      toggle.setAttribute("aria-expanded", String(!hidden && available.length > 0));
+      toggle.setAttribute("aria-controls", "ah-pinned-bar");
+    }
+
+    if (hidden || available.length === 0) {
+      bar?.remove();
+      return;
+    }
+
     if (!bar) {
       bar = document.createElement("div");
       bar.id = "ah-pinned-bar";
       document.body.prepend(bar);
     }
+    bar.replaceChildren();
 
-    const pinnedKeys = getPinnedKeys();
-    const props = getAllProperties();
-
-    bar.innerHTML = "";
-    bar.classList.remove("ah-empty");
-
-    if (pinnedKeys.length === 0) {
-      bar.textContent =
-        "📍 Click the pin icon next to any property to pin it here";
-      bar.classList.add("ah-empty");
-      return;
-    }
-
-    let foundAny = false;
-    pinnedKeys.forEach((key) => {
+    available.forEach((key) => {
       const prop = props[key];
-      if (!prop || !prop.value) return;
-      foundAny = true;
       const item = document.createElement("span");
       item.className = "ah-pin-item";
       item.innerHTML = `<span class="ah-label">${prop.title}:</span> <span class="ah-value">${prop.value}</span> <span class="ah-unpin" data-key="${key}">✕</span>`;
       bar.appendChild(item);
     });
-
-    if (!foundAny) {
-      bar.textContent = "📌 Pinned properties not found on this page";
-      bar.classList.add("ah-empty");
-    }
 
     bar.querySelectorAll(".ah-unpin").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -530,12 +539,24 @@
     return lines;
   }
 
-  // ── Floating copy button ──────────────────────────────────────
+  // ── Floating actions ──────────────────────────────────────────
   function setupCopyButton() {
-    if (document.getElementById("ah-copy-btn")) return;
+    if (document.getElementById("ah-actions")) return;
+
+    const actions = document.createElement("div");
+    actions.id = "ah-actions";
+    const toggle = document.createElement("button");
+    toggle.id = "ah-pins-toggle";
+    toggle.type = "button";
+    toggle.addEventListener("click", () => {
+      localStorage.setItem(PINNED_BAR_HIDDEN_KEY, String(!isPinnedBarHidden()));
+      updatePinnedBar();
+    });
+    actions.appendChild(toggle);
 
     const btn = document.createElement("button");
     btn.id = "ah-copy-btn";
+    btn.type = "button";
     btn.textContent = "📋 Copy";
     btn.addEventListener("click", async () => {
       const text = await extractCarDetails();
@@ -564,7 +585,9 @@
         }, 2000);
       }
     });
-    document.body.appendChild(btn);
+    actions.appendChild(btn);
+    document.body.appendChild(actions);
+    updatePinnedBar();
   }
 
   // ── Hide text-based clutter that CSS can't catch ──────────────
