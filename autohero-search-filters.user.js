@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Autohero - Search Filters
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      3.1
-// @description  Filter search cards by prior damage, owners, HU/AU expiry and commercial use
+// @version      3.2
+// @description  Filter search cards by prior damage, owners, HU/AU expiry, commercial use and origin
 // @match        https://www.autohero.com/de/search/*
 // @run-at       document-idle
 // @grant        none
@@ -12,7 +12,7 @@
     'use strict';
 
     const CARD_SELECTOR = 'a[data-qa-selector="ad-card-link"][href*="/id/"]';
-    const CACHE_PREFIX = 'ah-search-details-v3:';
+    const CACHE_PREFIX = 'ah-search-details-v4:';
     const SETTINGS_KEY = 'ah-search-filters-settings-v1';
     const CACHE_AGE_MS = 12 * 60 * 60 * 1000;
     const CONCURRENCY = 3;
@@ -24,7 +24,7 @@
     const retryAfter = new Map();
     const settings = {
         hideDamage: true, maxOwners: 2, minTuvYear: currentYear + 2,
-        hideCommercial: true, panelCollapsed: false,
+        hideCommercial: true, germanyOnly: true, panelCollapsed: false,
     };
     let running = 0;
     let scanTimer;
@@ -35,6 +35,7 @@
         if (saved?.maxOwners === 1 || saved?.maxOwners === 2) settings.maxOwners = saved.maxOwners;
         if (tuvYears.includes(saved?.minTuvYear)) settings.minTuvYear = saved.minTuvYear;
         if (typeof saved?.hideCommercial === 'boolean') settings.hideCommercial = saved.hideCommercial;
+        if (typeof saved?.germanyOnly === 'boolean') settings.germanyOnly = saved.germanyOnly;
         if (typeof saved?.panelCollapsed === 'boolean') settings.panelCollapsed = saved.panelCollapsed;
     } catch (_) { /* Use defaults if storage is unavailable. */ }
 
@@ -109,7 +110,10 @@
     const commercialButton = document.createElement('button');
     commercialButton.type = 'button';
     commercialButton.title = 'Autos mit gewerblicher Nutzung ausblenden';
-    panel.append(damageButton, ownerLabel, tuvLabel, commercialButton);
+    const originButton = document.createElement('button');
+    originButton.type = 'button';
+    originButton.title = 'Nur Autos mit Herkunftsland Deutschland anzeigen';
+    panel.append(damageButton, ownerLabel, tuvLabel, commercialButton, originButton);
     controls.append(panel, toggleButton);
     document.body.appendChild(controls);
 
@@ -120,8 +124,11 @@
         tuvSelect.value = String(settings.minTuvYear);
         commercialButton.textContent = `Gewerblich: ${settings.hideCommercial ? 'Ausblenden' : 'Anzeigen'}`;
         commercialButton.setAttribute('aria-pressed', String(settings.hideCommercial));
+        originButton.textContent = `Herkunft: ${settings.germanyOnly ? 'Nur DE' : 'Alle'}`;
+        originButton.setAttribute('aria-pressed', String(settings.germanyOnly));
         panel.hidden = settings.panelCollapsed;
-        const activeCount = 2 + Number(settings.hideDamage) + Number(settings.hideCommercial);
+        const activeCount = 2 + Number(settings.hideDamage) + Number(settings.hideCommercial) +
+            Number(settings.germanyOnly);
         toggleButton.textContent = `Filter · ${activeCount} aktiv ${settings.panelCollapsed ? '▲' : '▼'}`;
         toggleButton.setAttribute('aria-expanded', String(!settings.panelCollapsed));
         toggleButton.setAttribute('aria-label', `Autohero-Filter ${settings.panelCollapsed ? 'öffnen' : 'schließen'}`);
@@ -149,6 +156,10 @@
         settings.hideCommercial = !settings.hideCommercial;
         saveSettings();
     });
+    originButton.addEventListener('click', () => {
+        settings.germanyOnly = !settings.germanyOnly;
+        saveSettings();
+    });
     toggleButton.addEventListener('click', () => {
         settings.panelCollapsed = !settings.panelCollapsed;
         saveSettings();
@@ -161,13 +172,14 @@
             if (entry && Date.now() - entry.checkedAt < CACHE_AGE_MS &&
                 typeof entry.damaged === 'boolean' && Number.isInteger(entry.owners) &&
                 (entry.inspectionYear === null || Number.isInteger(entry.inspectionYear)) &&
-                typeof entry.commercial === 'boolean') return entry;
+                typeof entry.commercial === 'boolean' &&
+                (entry.origin === null || typeof entry.origin === 'string')) return entry;
         } catch (_) { /* Storage may be unavailable. */ }
         return undefined;
     }
 
-    function saveResult(id, damaged, owners, inspectionYear, commercial) {
-        const entry = { damaged, owners, inspectionYear, commercial, checkedAt: Date.now() };
+    function saveResult(id, damaged, owners, inspectionYear, commercial, origin) {
+        const entry = { damaged, owners, inspectionYear, commercial, origin, checkedAt: Date.now() };
         results.set(id, entry);
         try {
             localStorage.setItem(CACHE_PREFIX + id, JSON.stringify(entry));
@@ -191,7 +203,9 @@
                 ((settings.hideDamage && details.damaged) ||
                     details.owners > settings.maxOwners ||
                     (details.inspectionYear !== null && details.inspectionYear < settings.minTuvYear) ||
-                    (settings.hideCommercial && details.commercial)));
+                    (settings.hideCommercial && details.commercial) ||
+                    (settings.germanyOnly && details.origin !== null &&
+                        details.origin.trim().toLocaleLowerCase('de-DE') !== 'deutschland')));
 
             if (details === undefined && !queued.has(id) && Date.now() >= (retryAfter.get(id) || 0)) {
                 const url = new URL(link.href, location.href);
@@ -218,12 +232,13 @@
             const owners = [...html.matchAll(/carPreownerCount\\?":(\d+)/g)];
             const inspection = [...html.matchAll(/inspectionExpiryDate\\?":(?:\\?"(\d{4})-\d{2}-\d{2}\\?"|null)/g)];
             const commercial = [...html.matchAll(/wasInCommercialUse\\?":(true|false)/g)];
+            const origin = [...html.matchAll(/data-qa-selector="feature-section-item-countryOfOrigin-body"[^>]*>([^<]*)<\/div>/g)];
             if (damage.length !== 1 || owners.length !== 1 ||
-                inspection.length !== 1 || commercial.length !== 1) return; // Unknown: leave visible.
+                inspection.length !== 1 || commercial.length !== 1 || origin.length > 1) return;
             // Autohero stores zero-based carPreownerCount; its UI displays this value + 1.
             saveResult(id, damage[0][1] === 'true', Number(owners[0][1]) + 1,
                 inspection[0][1] ? Number(inspection[0][1]) : null,
-                commercial[0][1] === 'true');
+                commercial[0][1] === 'true', origin[0]?.[1]?.trim() || null);
         } catch (_) {
             // Network errors leave cards visible; a later scan can retry.
         } finally {
