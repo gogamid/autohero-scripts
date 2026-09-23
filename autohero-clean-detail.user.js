@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      2.2
+// @version      2.3
 // @description  Clean car detail pages, pin properties, and copy complete details as Markdown
 // @author       gogamid
 // @match        https://www.autohero.com/de/*/id/*
@@ -59,15 +59,14 @@
         #ah-pinned-bar {
             position: sticky; top: 0; z-index: 9999;
             background: #1a1a2e; color: #fff;
-            padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 12px 24px;
-            font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 4px 8px;
+            font: 12px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             box-shadow: 0 2px 12px rgba(0,0,0,0.25);
             align-items: center;
-            min-height: 32px;
         }
         #ah-pinned-bar .ah-pin-item {
             display: inline-flex; align-items: center; gap: 4px;
-            background: #16213e; padding: 4px 10px; border-radius: 6px;
+            background: #16213e; padding: 2px 6px; border-radius: 6px;
         }
         #ah-pinned-bar .ah-pin-item .ah-label {
             color: #a0aec0; font-weight: 500;
