@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      2.6
+// @version      2.7
 // @description  Clean car detail pages, pin properties, and copy complete details as Markdown
 // @author       gogamid
 // @match        https://www.autohero.com/de/*/id/*
@@ -132,6 +132,36 @@
             padding: 5px 0; border-bottom: 1px solid #edf0f3; font-size: 13px;
         }
         #ah-wheel-grid li span:last-child { text-align: right; font-weight: 600; }
+        #ah-damage-gallery {
+            padding: 20px 16px; max-width: 1600px; margin: 0 auto;
+            box-sizing: border-box; color: #243447;
+        }
+        #ah-damage-gallery .ah-damage-header {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; margin-bottom: 12px;
+        }
+        #ah-damage-gallery h2 { margin: 0; font-size: 22px; }
+        #ah-damage-gallery .ah-damage-controls { display: flex; gap: 8px; }
+        #ah-damage-gallery button {
+            border: 1px solid #c8d5e1; background: #fff; color: #003e70;
+            border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 20px;
+        }
+        #ah-damage-gallery button:disabled { opacity: .4; cursor: default; }
+        #ah-damage-track {
+            display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, 1fr);
+            grid-auto-columns: clamp(170px, 20vw, 230px); gap: 10px;
+            overflow-x: auto; overscroll-behavior-inline: contain;
+            scroll-snap-type: x mandatory; padding-bottom: 8px; cursor: grab;
+        }
+        #ah-damage-track:active { cursor: grabbing; }
+        #ah-damage-track figure {
+            margin: 0; border: 1px solid #dce3ea; border-radius: 8px;
+            overflow: hidden; background: #fff; scroll-snap-align: start;
+        }
+        #ah-damage-track img {
+            display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
+        }
+        #ah-damage-track figcaption { padding: 7px 9px; font-size: 12px; line-height: 1.3; }
     `);
 
   function getPinnedKeys() {
@@ -182,7 +212,7 @@
       .join("; ");
   }
 
-  function usageMarks() {
+  function carState() {
     const adId = window.location.pathname.match(/\/id\/([0-9a-f-]{36})\//i)?.[1];
     const script = [...document.scripts].find((element) =>
       element.textContent.includes("window.__APOLLO_STATE__"));
@@ -195,21 +225,102 @@
       const state = JSON.parse(JSON.parse(encoded));
       const car = Object.values(state.ROOT_QUERY || {}).find((value) =>
         value?.__typename === "CarDetailsStoreAdProjection" && value.adId === adId);
-      if (!Array.isArray(car?.damages)) return null;
-
-      const groups = new Map();
-      car.damages.forEach((ref) => {
-        const damage = state[ref.__ref];
-        const type = damage?.type?.trim();
-        const part = damage?.part?.trim();
-        if (!type || !part) return;
-        if (!groups.has(type)) groups.set(type, new Set());
-        groups.get(type).add(part);
-      });
-      return groups;
+      return car ? { state, car } : null;
     } catch {
       return null;
     }
+  }
+
+  function usageMarks() {
+    const data = carState();
+    if (!Array.isArray(data?.car.damages)) return null;
+    const groups = new Map();
+    data.car.damages.forEach((ref) => {
+      const damage = data.state[ref.__ref];
+      const type = damage?.type?.trim();
+      const part = damage?.part?.trim();
+      if (!type || !part) return;
+      if (!groups.has(type)) groups.set(type, new Set());
+      groups.get(type).add(part);
+    });
+    return groups;
+  }
+
+  function setupDamageGallery() {
+    const gallery = document.querySelector('[data-qa-selector="gallery-section"]');
+    const data = carState();
+    if (!gallery || document.getElementById("ah-damage-gallery") ||
+        !Array.isArray(data?.car.damages) || !data.car.damages.length) return;
+
+    const section = document.createElement("section");
+    section.id = "ah-damage-gallery";
+    const header = document.createElement("div");
+    header.className = "ah-damage-header";
+    const heading = document.createElement("h2");
+    heading.textContent = "Gebrauchsspuren";
+    const controls = document.createElement("div");
+    controls.className = "ah-damage-controls";
+    const track = document.createElement("div");
+    track.id = "ah-damage-track";
+    track.tabIndex = 0;
+    track.setAttribute("aria-label", "Gebrauchsspuren, horizontal scrollen");
+    const buttons = [-1, 1].map((direction) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = direction < 0 ? "‹" : "›";
+      button.setAttribute("aria-label", direction < 0 ? "Vorherige Gebrauchsspuren" : "Nächste Gebrauchsspuren");
+      button.addEventListener("click", () =>
+        track.scrollBy({ left: direction * track.clientWidth * 0.8, behavior: "smooth" }));
+      controls.appendChild(button);
+      return button;
+    });
+
+    data.car.damages.forEach((ref) => {
+      const damage = data.state[ref.__ref];
+      const image = data.state[damage?.image?.__ref];
+      if (!damage?.part || !damage?.type || !image?.fullUrl) return;
+      const caption = `${damage.part} | ${damage.type}`;
+      const figure = document.createElement("figure");
+      const img = document.createElement("img");
+      img.src = image.fullUrl.replace("{size}", "992x744-");
+      img.alt = caption;
+      img.loading = "lazy";
+      img.draggable = false;
+      const label = document.createElement("figcaption");
+      label.textContent = caption;
+      figure.append(img, label);
+      track.appendChild(figure);
+    });
+    if (!track.children.length) return;
+    const updateButtons = () => {
+      buttons[0].disabled = track.scrollLeft < 2;
+      buttons[1].disabled = track.scrollLeft + track.clientWidth >= track.scrollWidth - 2;
+    };
+    track.addEventListener("scroll", updateButtons, { passive: true });
+    let dragStart = null;
+    track.addEventListener("pointerdown", (event) => {
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      dragStart = { x: event.clientX, scroll: track.scrollLeft };
+      track.style.scrollSnapType = "none";
+      track.setPointerCapture(event.pointerId);
+    });
+    track.addEventListener("pointermove", (event) => {
+      if (!dragStart) return;
+      if (Math.abs(event.clientX - dragStart.x) > 3) event.preventDefault();
+      track.scrollLeft = dragStart.scroll + dragStart.x - event.clientX;
+    });
+    const stopDragging = () => {
+      dragStart = null;
+      track.style.scrollSnapType = "";
+    };
+    track.addEventListener("pointerup", stopDragging);
+    track.addEventListener("pointercancel", stopDragging);
+    track.addEventListener("lostpointercapture", stopDragging);
+    window.addEventListener("resize", updateButtons);
+    header.append(heading, controls);
+    section.append(header, track);
+    gallery.parentElement.insertAdjacentElement("afterend", section);
+    updateButtons();
   }
 
   async function setupSecondaryWheels() {
@@ -231,15 +342,7 @@
       const data = (await response.json()).data?.carDetails?.secondaryWheels;
       if (!data?.wheels || !section.isConnected) return;
 
-      const script = [...document.scripts].find((element) =>
-        element.textContent.includes("window.__APOLLO_STATE__"));
-      const encoded = script?.textContent.match(
-        /window\.__APOLLO_STATE__\s*=\s*("(?:\\.|[^"\\])*")\s*;/,
-      )?.[1];
-      const state = encoded && JSON.parse(JSON.parse(encoded));
-      const car = Object.values(state?.ROOT_QUERY || {}).find((value) =>
-        value?.__typename === "CarDetailsStoreAdProjection" && value.adId === adId);
-      const images = car?.carDetailsImageComposites?.ad_secondary_wheels || [];
+      const images = carState()?.car.carDetailsImageComposites?.ad_secondary_wheels || [];
       const positions = [
         ["FRONT_LEFT", "Vordere linke Details", "secondary-fwl"],
         ["FRONT_RIGHT", "Vordere rechte Details", "secondary-fwr"],
@@ -760,6 +863,7 @@
       updatePinnedBar();
       updatePinButtons();
       setupCopyButton();
+      setupDamageGallery();
       setupSecondaryWheels();
     }, 800);
   }
