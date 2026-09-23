@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      2.5
+// @version      2.6
 // @description  Clean car detail pages, pin properties, and copy complete details as Markdown
 // @author       gogamid
 // @match        https://www.autohero.com/de/*/id/*
@@ -115,6 +115,23 @@
         #ah-pins-toggle:disabled { opacity: .6; cursor: default !important; }
         #ah-copy-btn:hover { background: #1a5276 !important; }
         #ah-copy-btn.copied { background: #27ae60 !important; }
+        #ah-wheel-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 16px; max-width: 1100px; margin: 24px auto;
+            padding: 0 16px; box-sizing: border-box;
+        }
+        #ah-wheel-grid article {
+            border: 1px solid #dce3ea; border-radius: 10px;
+            overflow: hidden; background: #fff; color: #243447;
+        }
+        #ah-wheel-grid img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+        #ah-wheel-grid h3 { margin: 14px 14px 8px; font-size: 18px; }
+        #ah-wheel-grid ul { list-style: none; padding: 0 14px 14px; margin: 0; }
+        #ah-wheel-grid li {
+            display: flex; justify-content: space-between; gap: 12px;
+            padding: 5px 0; border-bottom: 1px solid #edf0f3; font-size: 13px;
+        }
+        #ah-wheel-grid li span:last-child { text-align: right; font-weight: 600; }
     `);
 
   function getPinnedKeys() {
@@ -192,6 +209,97 @@
       return groups;
     } catch {
       return null;
+    }
+  }
+
+  async function setupSecondaryWheels() {
+    const section = document.querySelector('[data-qa-selector="secondary-wheels-section"]');
+    const adId = window.location.pathname.match(/\/id\/([0-9a-f-]{36})\//i)?.[1];
+    if (!section || !adId || document.getElementById("ah-wheel-grid")) return;
+
+    try {
+      const response = await fetch("/v1/retail-customer-gateway/graphql/getCarDetailsStoreAd", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          operationName: "getCarDetailsStoreAd",
+          variables: { id: adId, locale: "de-DE" },
+          query: "query getCarDetailsStoreAd($id: UUID!, $locale: String!) { carDetails: getCarDetailsStoreAd(adId: $id, locale: $locale) { secondaryWheels { wheels damageCondition } } }",
+        }),
+      });
+      if (!response.ok) return;
+      const data = (await response.json()).data?.carDetails?.secondaryWheels;
+      if (!data?.wheels || !section.isConnected) return;
+
+      const script = [...document.scripts].find((element) =>
+        element.textContent.includes("window.__APOLLO_STATE__"));
+      const encoded = script?.textContent.match(
+        /window\.__APOLLO_STATE__\s*=\s*("(?:\\.|[^"\\])*")\s*;/,
+      )?.[1];
+      const state = encoded && JSON.parse(JSON.parse(encoded));
+      const car = Object.values(state?.ROOT_QUERY || {}).find((value) =>
+        value?.__typename === "CarDetailsStoreAdProjection" && value.adId === adId);
+      const images = car?.carDetailsImageComposites?.ad_secondary_wheels || [];
+      const positions = [
+        ["FRONT_LEFT", "Vordere linke Details", "secondary-fwl"],
+        ["FRONT_RIGHT", "Vordere rechte Details", "secondary-fwr"],
+        ["REAR_LEFT", "Hintere linke Details", "secondary-bwl"],
+        ["REAR_RIGHT", "Hintere rechte Details", "secondary-bwr"],
+      ];
+
+      const grid = document.createElement("div");
+      grid.id = "ah-wheel-grid";
+      positions.forEach(([key, title, imagePart]) => {
+        const wheel = data.wheels[key];
+        if (!wheel) return;
+        const card = document.createElement("article");
+        const image = images.find((entry) => entry.part === imagePart);
+        if (image?.ahUrl) {
+          const img = document.createElement("img");
+          img.src = image.ahUrl.replace("{size}", "1024x768-");
+          img.alt = title.replace(" Details", "");
+          img.loading = "lazy";
+          card.appendChild(img);
+        }
+        const heading = document.createElement("h3");
+        heading.textContent = title;
+        card.appendChild(heading);
+        const list = document.createElement("ul");
+        const damageText = (damages) => Array.isArray(damages) && damages.length
+          ? damages.map((damage) => typeof damage === "string" ? damage
+            : Object.values(damage).filter((value) => typeof value === "string").join(" – "))
+            .filter(Boolean).join(", ")
+          : "";
+        const details = [
+          ["Felgenzustand", data.damageCondition],
+          ["Felgenschäden", damageText(wheel.rimDamages)],
+          ["Felgengröße", wheel.rimRadius && `${wheel.rimRadius} Zoll`],
+          ["Felgentyp", wheel.rimType],
+          ["Reifensaison", wheel.tireSeason],
+          ["Reifenschäden", damageText(wheel.tireDamages)],
+          ["Reifenprofiltiefe", wheel.treadDepth != null && `${wheel.treadDepth} mm`],
+          ["Reifenhersteller", wheel.tireManufacturer],
+          ["Reifengröße", wheel.tireWidth && wheel.tireHeight && wheel.rimRadius &&
+            `${wheel.tireWidth}/${wheel.tireHeight} R${wheel.rimRadius}`],
+          ["Tragfähigkeitsindex", wheel.loadIndex],
+          ["Geschwindigkeitsindex", wheel.speedIndex],
+        ];
+        details.forEach(([label, value]) => {
+          if (value == null || value === "") return;
+          const row = document.createElement("li");
+          const name = document.createElement("span");
+          name.textContent = label;
+          const description = document.createElement("span");
+          description.textContent = String(value);
+          row.append(name, description);
+          list.appendChild(row);
+        });
+        card.appendChild(list);
+        grid.appendChild(card);
+      });
+      if (grid.children.length) section.appendChild(grid);
+    } catch {
+      // Keep Autohero's original wheel gallery available if the request fails.
     }
   }
 
@@ -500,6 +608,15 @@
   }
 
   async function secondaryWheelDetails() {
+    const inlineCards = document.querySelectorAll("#ah-wheel-grid article");
+    if (inlineCards.length) {
+      return [...inlineCards].flatMap((card) => [
+        `### ${card.querySelector("h3").textContent.trim()}`,
+        ...[...card.querySelectorAll("li")].map((item) =>
+          `- **${item.children[0].textContent.trim()}:** ${item.children[1].textContent.trim()}`),
+        "",
+      ]);
+    }
     const findGallery = () => [...document.querySelectorAll('[role="dialog"]')]
       .find((dialog) => dialog.textContent.includes("Galerie für den sekundären Radsatz") &&
         dialog.querySelector("h2"));
@@ -643,6 +760,7 @@
       updatePinnedBar();
       updatePinButtons();
       setupCopyButton();
+      setupSecondaryWheels();
     }, 800);
   }
 
