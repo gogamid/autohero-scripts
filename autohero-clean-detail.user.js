@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      2.1
+// @version      2.2
 // @description  Clean car detail pages, pin properties, and copy complete details as Markdown
 // @author       gogamid
 // @match        https://www.autohero.com/de/*/id/*
@@ -156,6 +156,36 @@
       .join("; ");
   }
 
+  function usageMarks() {
+    const adId = window.location.pathname.match(/\/id\/([0-9a-f-]{36})\//i)?.[1];
+    const script = [...document.scripts].find((element) =>
+      element.textContent.includes("window.__APOLLO_STATE__"));
+    const encoded = script?.textContent.match(
+      /window\.__APOLLO_STATE__\s*=\s*("(?:\\.|[^"\\])*")\s*;/,
+    )?.[1];
+    if (!adId || !encoded) return null;
+
+    try {
+      const state = JSON.parse(JSON.parse(encoded));
+      const car = Object.values(state.ROOT_QUERY || {}).find((value) =>
+        value?.__typename === "CarDetailsStoreAdProjection" && value.adId === adId);
+      if (!Array.isArray(car?.damages)) return null;
+
+      const groups = new Map();
+      car.damages.forEach((ref) => {
+        const damage = state[ref.__ref];
+        const type = damage?.type?.trim();
+        const part = damage?.part?.trim();
+        if (!type || !part) return;
+        if (!groups.has(type)) groups.set(type, new Set());
+        groups.get(type).add(part);
+      });
+      return groups;
+    } catch {
+      return null;
+    }
+  }
+
   function updatePinnedBar() {
     let bar = document.getElementById("ah-pinned-bar");
     if (!bar) {
@@ -308,6 +338,17 @@
         vals.forEach((p) => push(`- **${p.title}:** ${p.value}`));
         push("");
       }
+    }
+
+    const marks = usageMarks();
+    if (marks) {
+      push("## Gebrauchsspuren");
+      if (marks.size) {
+        marks.forEach((parts, type) => push(`- **${type}:** ${[...parts].join(", ")}`));
+      } else {
+        push("Keine Gebrauchsspuren dokumentiert.");
+      }
+      push("");
     }
 
     // 4. Ausstattung — equipment with sub-section labels
