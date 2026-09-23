@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      2.0
-// @description  Remove clutter from autohero car detail pages, and pin key vehicle properties to the top
+// @version      2.1
+// @description  Clean car detail pages, pin properties, and copy complete details as Markdown
 // @author       gogamid
 // @match        https://www.autohero.com/de/*/id/*
 // @icon         https://www.autohero.com/favicon.ico
@@ -134,12 +134,26 @@
       const parent = titleEl.parentElement;
       const bodyEl = parent.querySelector('[data-qa-selector$="-body"]');
       props[key] = {
-        title: titleEl.textContent.trim(),
+        title: propertyTitle(titleEl),
         value: bodyEl ? bodyEl.textContent.trim() : "",
         titleEl: titleEl,
       };
     });
     return props;
+  }
+
+  function propertyTitle(element) {
+    const copy = element.cloneNode(true);
+    copy.querySelectorAll('.ah-pin-btn, [class*="footnoteNumber"]').forEach((el) => el.remove());
+    return copy.textContent.trim().replace(/\s+/g, " ");
+  }
+
+  function propertyValue(element) {
+    return (element.innerText || element.textContent || "")
+      .split(/\n+/)
+      .map((line) => line.trim().replace(/\s+/g, " "))
+      .filter(Boolean)
+      .join("; ");
   }
 
   function updatePinnedBar() {
@@ -217,12 +231,10 @@
     });
   }
 
-  // ── Extract ALL visible car details ───────────────────────────
-  function extractCarDetails() {
+  // ── Extract car details as standalone Markdown ────────────────
+  async function extractCarDetails() {
     const lines = [];
-    const push = (s) => {
-      if (s) lines.push(s);
-    };
+    const push = (s) => lines.push(s);
 
     // Helper: get text by data-qa-selector
     const qaText = (sel) =>
@@ -241,8 +253,9 @@
     if (subtitle) push(`**${subtitle}**`);
     if (price) {
       const monthly = qaText("vehicle-info-monthly-price");
-      const oldP = qaText("old-price");
-      const parts = [`**Preis:** ${price}`];
+      const oldP = document.querySelector('[data-qa-selector="vehicle-info-price"]')
+        ?.parentElement?.querySelector('[data-qa-selector="old-price"]')?.textContent.trim();
+      const parts = [`- **Preis:** ${price}`];
       if (oldP) parts.push(`statt ${oldP}`);
       if (monthly) parts.push(`monatlich: ${monthly}`);
       push(parts.join(" — "));
@@ -259,36 +272,31 @@
       lastService: "Letzter Service",
       accident: "Fahrzeugzustand",
     };
-    push("**Fahrzeugdetails**");
-    const motorData = [];
+    push("## Fahrzeugdetails");
     Object.entries(motorMap).forEach(([k, label]) => {
       const el = document.querySelector(
         `[data-qa-selector="motor-info-element-${k}"]`,
       );
-      if (el && el.textContent.trim()) {
-        motorData.push(`${label}: ${el.textContent.trim()}`);
-      }
+      const value = el?.querySelector(`[data-qa-selector="motor-info-title-${k}"]`)
+        ?.textContent.trim();
+      if (value) push(`- **${label}:** ${value}`);
     });
-    if (motorData.length) push(motorData.join(" · "));
     push("");
 
     // 3. All feature-section-item properties, grouped by section
-    const propSections = document.querySelectorAll(
-      '[class*="section___iCVPH"]',
+    const featureHeadings = document.querySelectorAll(
+      '[data-qa-selector="features-section-section"] h2',
     );
-    if (propSections.length) {
-      propSections.forEach((section) => {
-        const heading = section.querySelector("h2, h3");
-        if (heading) push(`**${heading.textContent.trim()}**`);
-        const items = section.querySelectorAll('[class*="item___qtMsT"]');
-        items.forEach((item) => {
-          const titleEl = item.querySelector('[data-qa-selector$="-title"]');
-          const bodyEl = item.querySelector('[data-qa-selector$="-body"]');
-          if (titleEl && bodyEl) {
-            const t = titleEl.textContent.trim();
-            const v = bodyEl.textContent.trim();
-            if (t && v) push(`${t}: ${v}`);
-          }
+    if (featureHeadings.length) {
+      featureHeadings.forEach((heading) => {
+        push(`## ${heading.textContent.trim()}`);
+        heading.parentElement.querySelectorAll(
+          '[data-qa-selector^="feature-section-item-"][data-qa-selector$="-title"]',
+        ).forEach((titleEl) => {
+          const bodyEl = titleEl.parentElement.querySelector('[data-qa-selector$="-body"]');
+          const title = propertyTitle(titleEl);
+          const value = bodyEl && propertyValue(bodyEl);
+          if (title && value) push(`- **${title}:** ${value}`);
         });
         push("");
       });
@@ -297,7 +305,7 @@
       const props = getAllProperties();
       const vals = Object.values(props).filter((p) => p.title && p.value);
       if (vals.length) {
-        vals.forEach((p) => push(`${p.title}: ${p.value}`));
+        vals.forEach((p) => push(`- **${p.title}:** ${p.value}`));
         push("");
       }
     }
@@ -320,7 +328,7 @@
       );
       if (!items.length) return;
       if (!hasEquipment) {
-        push("**Ausstattung**");
+        push("## Ausstattung");
         hasEquipment = true;
       }
       push(`### ${label}`);
@@ -381,11 +389,11 @@
         // Remove duplicate words like "Autohero Autohero"
         workshop = workshop.replace(/\b(\w+)\s+\1\b/g, "$1");
 
-        if (date) serviceEntries.push(`**${date}**`);
-        if (workshop) serviceEntries.push(`Ort: ${workshop}`);
-        if (mileage) serviceEntries.push(`km: ${mileage}`);
+        if (date) serviceEntries.push(`### ${date}`);
+        if (workshop) serviceEntries.push(`- **Ort:** ${workshop}`);
+        if (mileage) serviceEntries.push(`- **Kilometerstand:** ${mileage}`);
         if (inspection)
-          serviceEntries.push(`Status: ${inspection.replace(/:/g, ": ")}`);
+          serviceEntries.push(`- **Status:** ${inspection.replace(/:/g, ": ")}`);
 
         // Extract tasks from car-history-item
         const taskDivs = [];
@@ -407,17 +415,17 @@
           const task = taskDivs[i];
           const next = i + 1 < taskDivs.length ? taskDivs[i + 1] : "";
           if (next && statusWords.includes(next)) {
-            serviceEntries.push(`  - ${task} (${next})`);
+            serviceEntries.push(`- ${task} (${next})`);
             i += 2;
           } else {
-            serviceEntries.push(`  - ${task}`);
+            serviceEntries.push(`- ${task}`);
             i += 1;
           }
         }
         serviceEntries.push("");
       });
       if (serviceEntries.length) {
-        push("**Service & Wartungs-Historie**");
+        push("## Service & Wartungs-Historie");
         serviceEntries.forEach((line) => push(line));
       }
     }
@@ -427,14 +435,59 @@
       '[data-qa-selector="secondary-wheels-section"], [class*="secondaryWheel"]',
     );
     if (secondWheels) {
-      push("**Zweiter Radsatz**");
-      push(secondWheels.textContent.trim().substring(0, 300));
+      push("## Zweiter Radsatz");
+      secondWheels.querySelectorAll("p").forEach((paragraph) => {
+        const text = paragraph.textContent.trim();
+        if (text) push(text);
+      });
+      const details = await secondaryWheelDetails();
+      details.forEach(push);
       push("");
     }
 
     // 7. URL
-    push(`🔗 ${window.location.href.split("?")[0]}`);
-    return lines.join("\n");
+    push(`Quelle: ${window.location.href.split("?")[0]}`);
+    return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  async function secondaryWheelDetails() {
+    const findGallery = () => [...document.querySelectorAll('[role="dialog"]')]
+      .find((dialog) => dialog.textContent.includes("Galerie für den sekundären Radsatz") &&
+        dialog.querySelector("h2"));
+    let gallery = findGallery();
+    const openedByCopy = !gallery;
+    if (openedByCopy) {
+      const button = document.querySelector('[data-qa-selector="secondary-wheels-button"]');
+      if (!button) return [];
+      button.click();
+      gallery = await new Promise((resolve) => {
+        const observer = new MutationObserver(() => {
+          const found = findGallery();
+          if (found) { observer.disconnect(); clearTimeout(timeout); resolve(found); }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        const timeout = setTimeout(() => { observer.disconnect(); resolve(findGallery()); }, 3000);
+        const found = findGallery();
+        if (found) { observer.disconnect(); clearTimeout(timeout); resolve(found); }
+      });
+    }
+
+    const lines = [];
+    if (gallery) {
+      gallery.querySelectorAll("h2").forEach((heading) => {
+        const items = heading.parentElement.querySelectorAll("li");
+        if (!items.length) return;
+        lines.push(`### ${heading.textContent.trim()}`);
+        items.forEach((item) => {
+          const fields = [...item.children].map((element) => element.textContent.trim());
+          if (fields.length >= 2 && fields[0] && fields[1])
+            lines.push(`- **${fields[0]}:** ${fields[1]}`);
+        });
+        lines.push("");
+      });
+      if (openedByCopy) gallery.querySelector('[data-qa-selector="sideMenuClose"]')?.click();
+    }
+    return lines;
   }
 
   // ── Floating copy button ──────────────────────────────────────
@@ -445,7 +498,7 @@
     btn.id = "ah-copy-btn";
     btn.textContent = "📋 Copy";
     btn.addEventListener("click", async () => {
-      const text = extractCarDetails();
+      const text = await extractCarDetails();
       try {
         await navigator.clipboard.writeText(text);
         btn.textContent = "✅ Copied!";
