@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Search Filters
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      3.0
+// @version      3.1
 // @description  Filter search cards by prior damage, owners, HU/AU expiry and commercial use
 // @match        https://www.autohero.com/de/search/*
 // @run-at       document-idle
@@ -22,7 +22,10 @@
     const queued = new Set();
     const results = new Map();
     const retryAfter = new Map();
-    const settings = { hideDamage: true, maxOwners: 2, minTuvYear: currentYear + 2, hideCommercial: true };
+    const settings = {
+        hideDamage: true, maxOwners: 2, minTuvYear: currentYear + 2,
+        hideCommercial: true, panelCollapsed: false,
+    };
     let running = 0;
     let scanTimer;
 
@@ -32,6 +35,7 @@
         if (saved?.maxOwners === 1 || saved?.maxOwners === 2) settings.maxOwners = saved.maxOwners;
         if (tuvYears.includes(saved?.minTuvYear)) settings.minTuvYear = saved.minTuvYear;
         if (typeof saved?.hideCommercial === 'boolean') settings.hideCommercial = saved.hideCommercial;
+        if (typeof saved?.panelCollapsed === 'boolean') settings.panelCollapsed = saved.panelCollapsed;
     } catch (_) { /* Use defaults if storage is unavailable. */ }
 
     const style = document.createElement('style');
@@ -39,27 +43,44 @@
         .ah-search-filter-hidden { visibility: hidden !important; }
         #ah-search-filters {
             position: fixed; z-index: 99990; right: 16px; bottom: 16px;
-            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+            display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
             max-width: calc(100vw - 32px);
+            color: white;
+            font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        #ah-search-filter-panel {
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
             padding: 10px 14px; border-radius: 8px;
             background: #1d3557; color: white;
             box-shadow: 0 2px 10px rgba(0,0,0,.25);
-            font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
-        #ah-search-filters button, #ah-search-filters select {
+        #ah-search-filter-panel[hidden] { display: none !important; }
+        #ah-search-filter-toggle {
+            border: 0; border-radius: 8px; padding: 9px 14px;
+            background: #1d3557; color: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,.25);
+            font: inherit; font-weight: 600; cursor: pointer;
+        }
+        #ah-search-filter-panel button, #ah-search-filter-panel select {
             border: 1px solid #b9c9d8; border-radius: 5px;
             padding: 5px 8px; background: white; color: #1d3557;
             font: inherit; cursor: pointer;
         }
-        #ah-search-filters button[aria-pressed="true"] {
+        #ah-search-filter-panel button[aria-pressed="true"] {
             background: #dbf5e7; border-color: #69b88d;
         }
-        #ah-search-filters label { display: flex; align-items: center; gap: 6px; }
+        #ah-search-filter-panel label { display: flex; align-items: center; gap: 6px; }
     `;
     document.head.appendChild(style);
 
     const controls = document.createElement('div');
     controls.id = 'ah-search-filters';
+    const panel = document.createElement('div');
+    panel.id = 'ah-search-filter-panel';
+    const toggleButton = document.createElement('button');
+    toggleButton.id = 'ah-search-filter-toggle';
+    toggleButton.type = 'button';
+    toggleButton.setAttribute('aria-controls', panel.id);
     const damageButton = document.createElement('button');
     damageButton.type = 'button';
     damageButton.title = 'Autos mit reparierten Vorschäden ausblenden';
@@ -88,7 +109,8 @@
     const commercialButton = document.createElement('button');
     commercialButton.type = 'button';
     commercialButton.title = 'Autos mit gewerblicher Nutzung ausblenden';
-    controls.append(damageButton, ownerLabel, tuvLabel, commercialButton);
+    panel.append(damageButton, ownerLabel, tuvLabel, commercialButton);
+    controls.append(panel, toggleButton);
     document.body.appendChild(controls);
 
     function updateControls() {
@@ -98,6 +120,11 @@
         tuvSelect.value = String(settings.minTuvYear);
         commercialButton.textContent = `Gewerblich: ${settings.hideCommercial ? 'Ausblenden' : 'Anzeigen'}`;
         commercialButton.setAttribute('aria-pressed', String(settings.hideCommercial));
+        panel.hidden = settings.panelCollapsed;
+        const activeCount = 2 + Number(settings.hideDamage) + Number(settings.hideCommercial);
+        toggleButton.textContent = `Filter · ${activeCount} aktiv ${settings.panelCollapsed ? '▲' : '▼'}`;
+        toggleButton.setAttribute('aria-expanded', String(!settings.panelCollapsed));
+        toggleButton.setAttribute('aria-label', `Autohero-Filter ${settings.panelCollapsed ? 'öffnen' : 'schließen'}`);
     }
 
     function saveSettings() {
@@ -120,6 +147,10 @@
     });
     commercialButton.addEventListener('click', () => {
         settings.hideCommercial = !settings.hideCommercial;
+        saveSettings();
+    });
+    toggleButton.addEventListener('click', () => {
+        settings.panelCollapsed = !settings.panelCollapsed;
         saveSettings();
     });
     updateControls();
