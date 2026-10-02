@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Autohero - Search Filters
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      3.3
+// @version      3.4
 // @description  Filter search cards by prior damage, owners, HU/AU expiry, commercial use and origin
 // @author       gogamid
 // @match        https://www.autohero.com/de/search/*
+// @match        https://www.autohero.com/de/*/search/*
 // @icon         https://www.autohero.com/favicon.ico
 // @homepageURL  https://github.com/gogamid/autohero-scripts
 // @updateURL    https://cdn.jsdelivr.net/gh/gogamid/autohero-scripts@main/autohero-search-filters.user.js
@@ -193,7 +194,7 @@
     }
 
     function scan() {
-        if (location.pathname !== '/de/search/') return;
+        if (!/^\/de\/(?:v\d+\/)?search\/$/.test(location.pathname)) return;
 
         document.querySelectorAll(CARD_SELECTOR).forEach(link => {
             const id = link.id;

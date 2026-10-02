@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autohero - Clean Detail Page + Pin Properties
 // @namespace    https://github.com/gogamid/autohero-scripts
-// @version      2.8
+// @version      2.9
 // @description  Clean car detail pages, pin properties, and copy complete details as Markdown
 // @author       gogamid
 // @match        https://www.autohero.com/de/*/id/*
@@ -10,6 +10,7 @@
 // @downloadURL  https://cdn.jsdelivr.net/gh/gogamid/autohero-scripts@main/autohero-clean-detail.user.js
 // @supportURL   https://github.com/gogamid/autohero-scripts/issues
 // @grant        GM_addStyle
+// @run-at       document-idle
 // ==/UserScript==
 
 (function () {
@@ -579,6 +580,33 @@
       }
     }
 
+    const battery = document.querySelector('[data-qa-selector="battery-and-charging-section"]');
+    if (battery) {
+      push("## Batterie & Laden");
+      battery.querySelectorAll('[class*="infoCard"]').forEach((card) => {
+        const heading = card.querySelector('[class*="cardHeader"]');
+        if (heading) push(`### ${propertyTitle(heading)}`);
+        card.querySelectorAll('[class*="itemTitle"]').forEach((title) => {
+          let row = title.parentElement;
+          while (row && row !== card && !row.querySelector('[class*="itemValue"]'))
+            row = row.parentElement;
+          const value = row?.querySelector('[class*="itemValue"]');
+          if (value) push(`- **${propertyTitle(title)}:** ${propertyValue(value)}`);
+        });
+        push("");
+      });
+      battery.querySelectorAll("h2").forEach((heading) => {
+        push(`### ${propertyTitle(heading)}`);
+        heading.parentElement.querySelectorAll(
+          '[data-qa-selector^="feature-section-item-"][data-qa-selector$="-title"]',
+        ).forEach((title) => {
+          const value = title.parentElement.querySelector('[data-qa-selector$="-body"]');
+          if (value) push(`- **${propertyTitle(title)}:** ${propertyValue(value)}`);
+        });
+        push("");
+      });
+    }
+
     const marks = usageMarks();
     if (marks) {
       push("## Gebrauchsspuren");
@@ -877,14 +905,24 @@
   }
 
   function init() {
-    // Wait for React to finish hydrating before any DOM changes
-    setTimeout(() => {
+    // Detail content can arrive after document-idle on versioned routes.
+    const start = () => {
+      if (!document.querySelector('[data-qa-selector="features-section-section"]')) return false;
       hideTextClutter();
       updatePinnedBar();
       updatePinButtons();
       setupCopyButton();
       setupDamageGallery();
       setupSecondaryWheels();
+      return true;
+    };
+    setTimeout(() => {
+      if (start()) return;
+      const observer = new MutationObserver(() => {
+        if (start()) { observer.disconnect(); clearTimeout(timeout); }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      const timeout = setTimeout(() => observer.disconnect(), 30000);
     }, 800);
   }
 
